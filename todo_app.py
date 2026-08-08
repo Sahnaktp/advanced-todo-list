@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 
 class TodoManager:
@@ -21,18 +21,22 @@ class TodoManager:
 
         try:
             with open(self.FILE_NAME, "r", encoding="utf-8") as file:
-                self.tasks = json.load(file)
+                data = json.load(file)
+                # Guard against a corrupted file that isn't a list
+                self.tasks = data if isinstance(data, list) else []
         except (json.JSONDecodeError, OSError):
-            print("Warning: Could not load saved tasks.")
+            print("Warning: Could not load saved tasks. Starting with an empty list.")
             self.tasks = []
 
-    def save_tasks(self) -> None:
-        """Save all tasks to the JSON file."""
+    def save_tasks(self) -> bool:
+        """Save all tasks to the JSON file. Returns True on success."""
         try:
             with open(self.FILE_NAME, "w", encoding="utf-8") as file:
                 json.dump(self.tasks, file, indent=4)
-        except OSError:
-            print("Error: Could not save tasks.")
+            return True
+        except OSError as e:
+            print(f"Error: Could not save tasks ({e}).")
+            return False
 
     def add_task(self) -> None:
         """Add a new task."""
@@ -46,12 +50,12 @@ class TodoManager:
             "id": self.get_next_id(),
             "title": title,
             "completed": False,
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
 
         self.tasks.append(task)
-        self.save_tasks()
-        print("Task added successfully!")
+        if self.save_tasks():
+            print("Task added successfully!")
 
     def get_next_id(self) -> int:
         """Generate the next task ID."""
@@ -79,6 +83,10 @@ class TodoManager:
                 "--------------------------------"
             )
 
+    def find_task(self, task_id: int) -> Optional[Dict]:
+        """Find a task by ID, or return None if not found."""
+        return next((t for t in self.tasks if t["id"] == task_id), None)
+
     def complete_task(self) -> None:
         """Mark a task as completed."""
         self.view_tasks()
@@ -87,21 +95,20 @@ class TodoManager:
             return
 
         task_id = self.get_task_id("Enter task ID to complete: ")
-
         if task_id is None:
             return
 
-        for task in self.tasks:
-            if task["id"] == task_id:
-                if task["completed"]:
-                    print("Task is already completed.")
-                else:
-                    task["completed"] = True
-                    self.save_tasks()
-                    print("Task marked as completed!")
-                return
+        task = self.find_task(task_id)
+        if task is None:
+            print("Task ID not found.")
+            return
 
-        print("Task ID not found.")
+        if task["completed"]:
+            print("Task is already completed.")
+        else:
+            task["completed"] = True
+            if self.save_tasks():
+                print("Task marked as completed!")
 
     def delete_task(self) -> None:
         """Delete a task."""
@@ -111,18 +118,17 @@ class TodoManager:
             return
 
         task_id = self.get_task_id("Enter task ID to delete: ")
-
         if task_id is None:
             return
 
-        for task in self.tasks:
-            if task["id"] == task_id:
-                self.tasks.remove(task)
-                self.save_tasks()
-                print("Task deleted successfully!")
-                return
+        task = self.find_task(task_id)
+        if task is None:
+            print("Task ID not found.")
+            return
 
-        print("Task ID not found.")
+        self.tasks.remove(task)
+        if self.save_tasks():
+            print("Task deleted successfully!")
 
     def search_tasks(self) -> None:
         """Search tasks using a keyword."""
@@ -132,10 +138,7 @@ class TodoManager:
             print("Search keyword cannot be empty.")
             return
 
-        results = [
-            task for task in self.tasks
-            if keyword in task["title"].lower()
-        ]
+        results = [task for task in self.tasks if keyword in task["title"].lower()]
 
         if not results:
             print("No matching tasks found.")
@@ -150,7 +153,7 @@ class TodoManager:
     def show_statistics(self) -> None:
         """Display task statistics."""
         total = len(self.tasks)
-        completed = sum(task["completed"] for task in self.tasks)
+        completed = sum(1 for task in self.tasks if task["completed"])
         pending = total - completed
 
         print("\n========== STATISTICS ==========")
@@ -159,7 +162,7 @@ class TodoManager:
         print(f"Pending Tasks   : {pending}")
 
     @staticmethod
-    def get_task_id(message: str):
+    def get_task_id(message: str) -> Optional[int]:
         """Get a valid task ID from the user."""
         try:
             return int(input(message))
@@ -193,36 +196,36 @@ def main() -> None:
 
     print("\nWelcome to the Advanced To-Do List System!")
 
+    actions = {
+        "1": todo.add_task,
+        "2": todo.view_tasks,
+        "3": todo.complete_task,
+        "4": todo.delete_task,
+        "5": todo.search_tasks,
+        "6": todo.show_statistics,
+    }
+
     while True:
         display_menu()
-        choice = input("Enter your choice (1-7): ").strip()
 
-        if choice == "1":
-            todo.add_task()
+        try:
+            choice = input("Enter your choice (1-7): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n\nGoodbye!")
+            break
 
-        elif choice == "2":
-            todo.view_tasks()
-
-        elif choice == "3":
-            todo.complete_task()
-
-        elif choice == "4":
-            todo.delete_task()
-
-        elif choice == "5":
-            todo.search_tasks()
-
-        elif choice == "6":
-            todo.show_statistics()
-
-        elif choice == "7":
+        if choice == "7":
             print("\nThank you for using the application!")
             print("Goodbye!")
             break
 
+        action = actions.get(choice)
+        if action:
+            action()
         else:
             print("Invalid choice. Please select a number from 1 to 7.")
 
 
 if __name__ == "__main__":
     main()
+    
